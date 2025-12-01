@@ -75,7 +75,7 @@ function drawNodes() {
             ctx.fillStyle = "blue";      // 線引き：終点
         }
         else if (node === startPoint) {
-            ctx.fillStyle = "yellow";    // 初期地点
+            ctx.fillStyle = "orange";    // 初期地点
         }
         else if (goalPoints.includes(node)) {
             ctx.fillStyle = "purple";    // 目的地点
