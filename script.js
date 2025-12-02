@@ -126,6 +126,59 @@ function drawAll() {
     });
 }
 
+// ノードのインデックスを取得する関数
+function getNodeIndex(node) {
+    return nodes.indexOf(node); // nodeオブジェクトの参照で検索
+}
+
+// 接続リストを構築する関数
+function buildGraph() {
+    const graph = {};
+
+    // ノード数分空の配列を作成
+    nodes.forEach((_, idx) => {
+        graph[idx] = [];
+    });
+
+    // lines を走査して接続関係を graph に追加
+    lines.forEach(line => {
+        const a = getNodeIndex(line.a);
+        const b = getNodeIndex(line.b);
+
+        if (a !== -1 && b !== -1) {
+            graph[a].push(b);
+            graph[b].push(a); // 無向グラフなので双方向
+        }
+    });
+
+    return graph;
+}
+
+// グラフ探索アルゴリズム（BFS）で接続を確認する関数
+function isConnected(startNode, targetNode, graph) {
+    const startIndex = getNodeIndex(startNode);
+    const targetIndex = getNodeIndex(targetNode);
+
+    const visited = new Set();
+    const queue = [startIndex];
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+
+        if (current === targetIndex) return true;
+
+        graph[current].forEach(next => {
+            if (!visited.has(next)) {
+                visited.add(next);
+                queue.push(next);
+            }
+        });
+    }
+
+    return false;
+}
+
+
 
 // 初期表示
 ctx.fillStyle = "lightgray";
@@ -178,8 +231,18 @@ canvas.addEventListener("click", function(e) {
             // 線を保存
             lines.push({ a: startNode, b: endNode });
 
+            const graph = buildGraph();
+
             drawAll();
             drawLineBetweenNodes(startNode, endNode);
+
+            goalPoints.forEach(goal => {
+                if (isConnected(startPoint, goal, graph)) {
+                    console.log("つながっています");
+                } else {
+                    console.log("つながっていません！");
+                }
+            });
 
             startNode = null;
             endNode = null;
@@ -187,4 +250,3 @@ canvas.addEventListener("click", function(e) {
         }
     }
 });
-
