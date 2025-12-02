@@ -146,8 +146,8 @@ function buildGraph() {
         const b = getNodeIndex(line.b);
 
         if (a !== -1 && b !== -1) {
-            graph[a].push(b);
-            graph[b].push(a); // 無向グラフなので双方向
+            graph[a].push({ node: b, cost: line.dist });
+            graph[b].push({ node: a, cost: line.dist });// 無向グラフなので双方向
         }
     });
 
@@ -229,20 +229,42 @@ canvas.addEventListener("click", function(e) {
             endNode = clickedNode;
 
             // 線を保存
-            lines.push({ a: startNode, b: endNode });
+            const distance = Math.sqrt(
+                Math.pow(startNode.x - endNode.x, 2) +
+                Math.pow(startNode.y - endNode.y, 2)
+            );
+
+            // 三角関数計算し、整数に丸める（お好みで調整）
+            const distRounded = Math.round(distance);
+
+            lines.push({ 
+                a: startNode, 
+                b: endNode,
+                dist: distRounded  // ★距離（重み）を持たせる
+            });
 
             const graph = buildGraph();
 
             drawAll();
             drawLineBetweenNodes(startNode, endNode);
 
-            goalPoints.forEach(goal => {
-                if (isConnected(startPoint, goal, graph)) {
-                    console.log("つながっています");
+            const startIndex = getNodeIndex(startPoint);
+
+            // 全ノードへの最短距離を取得
+            const distances = dijkstra(startIndex, graph);
+
+            // 目的地点それぞれについて表示
+            goalPoints.forEach((goal, i) => {
+                const goalIndex = getNodeIndex(goal);
+                const d = distances[goalIndex];
+
+                if (d === Infinity) {
+                    console.log(`Goal${i+1} (node ${goalIndex}) ：到達不可`);
                 } else {
-                    console.log("つながっていません！");
+                    console.log(`Goal${i+1} (node ${goalIndex}) ：最短距離 = ${d}`);
                 }
             });
+
 
             startNode = null;
             endNode = null;
@@ -250,3 +272,42 @@ canvas.addEventListener("click", function(e) {
         }
     }
 });
+
+// ダイクストラ法による最短経路探索
+function dijkstra(startIndex, graph) {
+    const dist = {};
+    const visited = {};
+    const pq = []; // 優先度付きキュー代用（単純配列）
+
+    // 初期化
+    Object.keys(graph).forEach(key => {
+        dist[key] = Infinity;
+    });
+    dist[startIndex] = 0;
+
+    pq.push({ node: startIndex, cost: 0 });
+
+    while (pq.length > 0) {
+        // コストが最小のものを取り出す
+        pq.sort((a, b) => a.cost - b.cost);
+        const { node: current } = pq.shift();
+
+        if (visited[current]) continue;
+        visited[current] = true;
+
+        // 隣接ノードを探索
+        graph[current].forEach(edge => {
+            const next = edge.node;
+            const cost = edge.cost;
+
+            const newCost = dist[current] + cost;
+
+            if (newCost < dist[next]) {
+                dist[next] = newCost;
+                pq.push({ node: next, cost: newCost });
+            }
+        });
+    }
+
+    return dist;
+}
