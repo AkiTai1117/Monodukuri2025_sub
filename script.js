@@ -244,26 +244,58 @@ canvas.addEventListener("click", function(e) {
             });
 
             const graph = buildGraph();
-
             drawAll();
-            drawLineBetweenNodes(startNode, endNode);
 
             const startIndex = getNodeIndex(startPoint);
 
-            // 全ノードへの最短距離を取得
-            const distances = dijkstra(startIndex, graph);
+            // ① ダイクストラ実行 → dist と prev を取得
+            const { dist, prev } = dijkstra(startIndex, graph);
 
-            // 目的地点それぞれについて表示
+            // ★ すべて再描画
+            drawAll();
+
+            const results = [];
+
+            // ② 目的地点それぞれの経路を計算し、ログ & 描画
             goalPoints.forEach((goal, i) => {
                 const goalIndex = getNodeIndex(goal);
-                const d = distances[goalIndex];
+                const d = dist[goalIndex];
 
                 if (d === Infinity) {
-                    console.log(`Goal${i+1} (node ${goalIndex}) ：到達不可`);
-                } else {
-                    console.log(`Goal${i+1} (node ${goalIndex}) ：最短距離 = ${d}`);
+                    console.log(`Goal${i+1}(node ${goalIndex})：到達不可`);
+                    return;
                 }
+
+                const path = reconstructPath(prev, startIndex, goalIndex);
+                console.log(`Goal${i+1} 最短距離=${d}, 経路=${path}`);
+
+                results.push({
+                    goalIndex,
+                    path,
+                    distance: d
+                });
+
+                // ★ ここで最短ルートを 1 本だけにする
+                const bestRoute = selectShortestRoute(results);
+
+                if (!bestRoute) {
+                    console.log("最短ルートが見つかりませんでした");
+                    return;
+                }
+
+                console.log("最短ゴール:", bestRoute.goalIndex);
+                console.log("距離:", bestRoute.distance);
+                console.log("ルート:", bestRoute.path);
+
+                // ★ 描画（アニメ or 通常）
+                animatePath(bestRoute.path);
+                // または drawPath(bestRoute.path);
+
+
+                // ★最短ルートを赤で描画
+                drawPath(path);
             });
+
 
 
             startNode = null;
@@ -273,41 +305,204 @@ canvas.addEventListener("click", function(e) {
     }
 });
 
-// ダイクストラ法による最短経路探索
+// ダイクストラ法（前ノードも記録して経路復元できるようにする）
 function dijkstra(startIndex, graph) {
     const dist = {};
     const visited = {};
-    const pq = []; // 優先度付きキュー代用（単純配列）
+    const prev = {}; // ★前ノードの記録
+    const pq = [];
 
-    // 初期化
     Object.keys(graph).forEach(key => {
         dist[key] = Infinity;
+        prev[key] = null;  // 初期化
     });
     dist[startIndex] = 0;
 
     pq.push({ node: startIndex, cost: 0 });
 
     while (pq.length > 0) {
-        // コストが最小のものを取り出す
         pq.sort((a, b) => a.cost - b.cost);
         const { node: current } = pq.shift();
 
         if (visited[current]) continue;
         visited[current] = true;
 
-        // 隣接ノードを探索
         graph[current].forEach(edge => {
             const next = edge.node;
-            const cost = edge.cost;
-
-            const newCost = dist[current] + cost;
+            const newCost = dist[current] + edge.cost;
 
             if (newCost < dist[next]) {
                 dist[next] = newCost;
+                prev[next] = current;  // ★前ノードを記録
                 pq.push({ node: next, cost: newCost });
             }
         });
     }
 
-    return dist;
+    return { dist, prev };
+}
+
+
+// prev 配列からルートを復元する
+function getPath(prev, goalIndex) {
+    const path = [];
+    let cur = goalIndex;
+
+    while (cur !== null) {
+        path.push(cur);
+        cur = prev[cur];
+    }
+    return path.reverse();
+}
+
+// 最短ルートをCanvas上に描画する
+function drawShortestPath(path) {
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 4;
+
+    for (let i = 0; i < path.length - 1; i++) {
+        const a = nodes[path[i]];
+        const b = nodes[path[i+1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+    }
+
+    // 描画後、線幅を戻す
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "green";
+}
+
+// 最短ルートを復元する関数
+function reconstructPath(prev, startIndex, goalIndex) {
+    let path = [];
+    let current = goalIndex;
+
+    while (current !== null) {
+        path.unshift(current);  // 前から追加
+        if (current == startIndex) break;
+        current = prev[current];
+    }
+
+    // 始点までたどり着けなかった
+    if (path[0] != startIndex) return null;
+
+    return path; // 例: [3, 8, 9, 14]
+}
+
+// 最短経路を赤線で描画する
+function drawPath(path) {
+    if (!path || path.length < 2) return;
+
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "red";
+
+    for (let i = 0; i < path.length - 1; i++) {
+        const a = nodes[path[i]];
+        const b = nodes[path[i+1]];
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+    }
+}
+
+// 最も短いルートを 1 本だけ選択する
+function selectShortestRoute(paths) {
+    if (paths.length === 0) return null;
+
+    let best = paths[0];
+    for (let p of paths) {
+        if (p.distance < best.distance) {
+            best = p;
+        }
+    }
+    return best;  // { goalIndex, path, distance }
+}
+
+// ----- アニメ制御用（既存のアニメがあればキャンセルできる） -----
+let animateId = null;
+
+// 全ライン（緑）を描画（lines[].a/b はノードオブジェクト）
+function drawAllLines() {
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "green";
+    for (let l of lines) {
+        const a = l.a; // node object
+        const b = l.b;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+    }
+}
+
+// 全ノード描画（既存の drawNodes を使えば色も揃う）
+function drawAllNodes() {
+    drawNodes();
+}
+
+// 最短ルートをアニメーション描画する（drawAll() を下地に使う）
+// speed: 伸びる速さ px/frame（オプション）
+function animatePath(path, speed = 6) {
+    if (!path || path.length < 2) return;
+
+    // 既存アニメが走っていたらキャンセル
+    if (animateId !== null) {
+        cancelAnimationFrame(animateId);
+        animateId = null;
+    }
+
+    // セグメント配列作成
+    const segments = [];
+    for (let i = 0; i < path.length - 1; i++) {
+        const a = nodes[path[i]];
+        const b = nodes[path[i+1]];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        segments.push({ ax: a.x, ay: a.y, dx, dy, length: len });
+    }
+
+    const totalLength = segments.reduce((s,v)=>s+v.length, 0);
+    let drawnLength = 0;
+
+    function drawFrame() {
+        // 再描画: 背景（ノード＋既存ライン）
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawAll(); // drawNodes() + all existing green lines
+
+        // 描画する赤線は "drawnLength" に従って部分的に描かれる
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "red";
+
+        let remain = drawnLength;
+        for (let seg of segments) {
+            if (remain <= 0) break;
+
+            const t = Math.min(remain / seg.length, 1);
+            ctx.beginPath();
+            ctx.moveTo(seg.ax, seg.ay);
+            ctx.lineTo(seg.ax + seg.dx * t, seg.ay + seg.dy * t);
+            ctx.stroke();
+
+            remain -= seg.length;
+        }
+
+        drawnLength += speed;
+
+        if (drawnLength < totalLength) {
+            animateId = requestAnimationFrame(drawFrame);
+        } else {
+            // 最後に全区間を確実に描いて終了
+            drawPath(path); // 静的な完全描画（太さ4で描かれる）
+            animateId = null;
+        }
+    }
+
+    // 初回フレームを呼ぶ
+    animateId = requestAnimationFrame(drawFrame);
 }
